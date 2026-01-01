@@ -99,9 +99,11 @@
   .kpi b{color:var(--ink)}
   .center{text-align:center}
   .hidden{display:none !important}
-  .toast{
-    margin-top:10px;font-size:13px;color:var(--muted)
-  }
+  .toast{margin-top:10px;font-size:13px;color:var(--muted)}
+
+  /* Щоб під час вибору поле запам’ятовування зникало */
+  .gridHidden{display:none !important}
+
   /* Confetti canvas */
   #confetti{
     position:fixed;inset:0;pointer-events:none;z-index:50;
@@ -176,7 +178,8 @@
         <div class="countdown" id="countdown">8</div>
       </div>
 
-      <div class="bigGrid">
+      <!-- ОЦЕ ПОЛЕ ТЕПЕР БУДЕ ХОВАТИСЯ ПІСЛЯ 8 СЕК -->
+      <div class="bigGrid" id="memoArea">
         <canvas id="main" width="560" height="560" aria-label="main grid"></canvas>
       </div>
 
@@ -188,7 +191,7 @@
           <div class="box">Рівень: <b id="level">1</b>/10</div>
           <div class="box">Час: <b id="time">00:00</b></div>
         </div>
-        <button class="btn secondary" id="btnRestart" title="Почати заново">Перезапуск</button>
+        <!-- КНОПКУ ПЕРЕЗАПУСК ПРИБРАЛИ -->
       </div>
     </div>
 
@@ -245,8 +248,8 @@ let timerInterval = null;
 let memoTimer = null;
 let memoLeft = MEMO_SECONDS;
 
-let correctLayout = null;     // {ships:[{x,y,len,dir}], n:GRID_N}
-let optionsLayouts = [];      // 4 layouts
+let correctLayout = null;
+let optionsLayouts = [];
 let accepting = false;
 
 /* =========================
@@ -260,7 +263,6 @@ const inpName  = document.getElementById("name");
 const inpEmail = document.getElementById("email");
 
 const btnStart   = document.getElementById("btnStart");
-const btnRestart = document.getElementById("btnRestart");
 const btnAgain   = document.getElementById("btnAgain");
 
 const userBadge = document.getElementById("userBadge");
@@ -283,6 +285,8 @@ const previewCanvas = document.getElementById("preview");
 const mainCanvas    = document.getElementById("main");
 const optionsWrap   = document.getElementById("options");
 
+const memoArea = document.getElementById("memoArea");
+
 const confettiCanvas = document.getElementById("confetti");
 
 /* =========================
@@ -296,9 +300,7 @@ function fmtTime(ms){
   return `${pad2(mm)}:${pad2(ss)}`;
 }
 function now(){ return Date.now(); }
-function randInt(a,b){ // [a,b]
-  return a + Math.floor(Math.random()*(b-a+1));
-}
+function randInt(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
 function shuffle(arr){
   for(let i=arr.length-1;i>0;i--){
     const j = Math.floor(Math.random()*(i+1));
@@ -322,10 +324,7 @@ function shipCells(ship){
 }
 
 function layoutKey(layout){
-  // нормалізований ключ для порівняння
-  const ships = layout.ships.slice().map(s => ({
-    x:s.x,y:s.y,len:s.len,dir:s.dir
-  }));
+  const ships = layout.ships.slice().map(s => ({x:s.x,y:s.y,len:s.len,dir:s.dir}));
   ships.sort((a,b)=> (a.len-b.len) || (a.dir-b.dir) || (a.x-b.x) || (a.y-b.y));
   return JSON.stringify({n:layout.n, ships});
 }
@@ -345,10 +344,6 @@ function addToTaken(ship, takenSet){
 }
 
 function genShipsForLevel(lv){
-  // плавне ускладнення: більше кораблів з ростом рівня
-  // 1-3: 2 кораблі (4,3)
-  // 4-6: 3 кораблі (4,3,2)
-  // 7-10: 4 кораблі (4,3,2,2)
   let sizes = [4,3,2,2];
   let count = (lv<=3)?2 : (lv<=6)?3 : 4;
   return sizes.slice(0,count);
@@ -373,47 +368,36 @@ function generateLayout(lv){
         placed = true;
       }
     }
-    if(!placed){
-      // fallback: якщо раптом не вийшло — перегенеруємо повністю
-      return generateLayout(lv);
-    }
+    if(!placed) return generateLayout(lv);
   }
   return {n:GRID_N, ships};
 }
 
 function mutateLayout(base, lv){
-  // створюємо схожу, але іншу — змінюємо 1 корабель (зсув/поворот)
   const out = deepCopy(base);
   const idx = randInt(0, out.ships.length-1);
-  const s = out.ships[idx];
 
-  // спроби зробити інший стан
   for(let tries=0; tries<250; tries++){
     const candidate = deepCopy(out);
     const ship = candidate.ships[idx];
 
     const action = randInt(1,3);
     if(action===1){
-      // зсув
       ship.x = randInt(0, GRID_N-1);
       ship.y = randInt(0, GRID_N-1);
     }else if(action===2){
-      // поворот
       ship.dir = ship.dir===0?1:0;
     }else{
-      // поворот + зсув
       ship.dir = ship.dir===0?1:0;
       ship.x = randInt(0, GRID_N-1);
       ship.y = randInt(0, GRID_N-1);
     }
 
-    // підрівняти в межі
     if(ship.dir===0) ship.x = Math.min(ship.x, GRID_N-ship.len);
     if(ship.dir===1) ship.y = Math.min(ship.y, GRID_N-ship.len);
     ship.x = Math.max(0, ship.x);
     ship.y = Math.max(0, ship.y);
 
-    // перевірка накладань
     const taken = new Set();
     let ok = true;
     for(const sh of candidate.ships){
@@ -422,11 +406,9 @@ function mutateLayout(base, lv){
     }
     if(!ok) continue;
 
-    // перевірка, що не ідентичний базовому
     if(layoutKey(candidate) !== layoutKey(base)) return candidate;
   }
 
-  // fallback: повна генерація
   let fresh = generateLayout(lv);
   if(layoutKey(fresh) === layoutKey(base)) fresh = generateLayout(lv);
   return fresh;
@@ -453,31 +435,26 @@ function drawGrid(ctx, w, h, n){
   ctx.clearRect(0,0,w,h);
   ctx.save();
 
-  // background
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0,0,w,h);
 
-  // frame
   const pad = Math.round(Math.min(w,h)*0.06);
   const x0 = pad, y0 = pad;
   const size = Math.min(w,h) - pad*2;
 
-  // outer border
   ctx.strokeStyle = "#0a5fa5";
   ctx.lineWidth = Math.max(2, Math.round(size*0.006));
   ctx.strokeRect(x0,y0,size,size);
 
-  // inner grid
   ctx.strokeStyle = "#cbd5e1";
   ctx.lineWidth = 1;
   for(let i=1;i<n;i++){
     const t = i*size/n;
-    // vertical
     ctx.beginPath();
     ctx.moveTo(x0+t, y0);
     ctx.lineTo(x0+t, y0+size);
     ctx.stroke();
-    // horizontal
+
     ctx.beginPath();
     ctx.moveTo(x0, y0+t);
     ctx.lineTo(x0+size, y0+t);
@@ -486,53 +463,6 @@ function drawGrid(ctx, w, h, n){
 
   ctx.restore();
   return {x0,y0,size,cell:size/n};
-}
-
-function drawShip(ctx, geom, ship){
-  const {x0,y0,cell} = geom;
-  const x = x0 + ship.x*cell;
-  const y = y0 + ship.y*cell;
-  const w = (ship.dir===0 ? ship.len : 1)*cell;
-  const h = (ship.dir===1 ? ship.len : 1)*cell;
-
-  // корпус (стилізація)
-  const r = Math.max(6, Math.round(cell*0.22));
-  ctx.save();
-  ctx.translate(x,y);
-
-  // shadow
-  ctx.fillStyle = "rgba(15,23,42,.12)";
-  roundRect(ctx, 3, 4, w, h, r);
-  ctx.fill();
-
-  // body
-  ctx.fillStyle = "#111827";
-  roundRect(ctx, 0, 0, w, h, r);
-  ctx.fill();
-
-  // light panel
-  ctx.fillStyle = "#f8fafc";
-  const p = Math.max(3, Math.round(cell*0.12));
-  roundRect(ctx, p, p, Math.max(2, w-2*p), Math.max(2, h-2*p), Math.max(4, r-4));
-  ctx.fill();
-
-  // “деталі”
-  ctx.strokeStyle = "#111827";
-  ctx.lineWidth = Math.max(1, Math.round(cell*0.06));
-  ctx.beginPath();
-  if(ship.dir===0){
-    // горизонтальні “вікна”
-    const cy = h/2;
-    ctx.moveTo(p*1.7, cy);
-    ctx.lineTo(w-p*1.7, cy);
-  }else{
-    const cx = w/2;
-    ctx.moveTo(cx, p*1.7);
-    ctx.lineTo(cx, h-p*1.7);
-  }
-  ctx.stroke();
-
-  ctx.restore();
 }
 
 function roundRect(ctx, x,y,w,h,r){
@@ -546,16 +476,55 @@ function roundRect(ctx, x,y,w,h,r){
   ctx.closePath();
 }
 
+function drawShip(ctx, geom, ship){
+  const {x0,y0,cell} = geom;
+  const x = x0 + ship.x*cell;
+  const y = y0 + ship.y*cell;
+  const w = (ship.dir===0 ? ship.len : 1)*cell;
+  const h = (ship.dir===1 ? ship.len : 1)*cell;
+
+  const r = Math.max(6, Math.round(cell*0.22));
+  ctx.save();
+  ctx.translate(x,y);
+
+  ctx.fillStyle = "rgba(15,23,42,.12)";
+  roundRect(ctx, 3, 4, w, h, r);
+  ctx.fill();
+
+  ctx.fillStyle = "#111827";
+  roundRect(ctx, 0, 0, w, h, r);
+  ctx.fill();
+
+  ctx.fillStyle = "#f8fafc";
+  const p = Math.max(3, Math.round(cell*0.12));
+  roundRect(ctx, p, p, Math.max(2, w-2*p), Math.max(2, h-2*p), Math.max(4, r-4));
+  ctx.fill();
+
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = Math.max(1, Math.round(cell*0.06));
+  ctx.beginPath();
+  if(ship.dir===0){
+    const cy = h/2;
+    ctx.moveTo(p*1.7, cy);
+    ctx.lineTo(w-p*1.7, cy);
+  }else{
+    const cx = w/2;
+    ctx.moveTo(cx, p*1.7);
+    ctx.lineTo(cx, h-p*1.7);
+  }
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function renderLayout(canvas, layout){
   const ctx = canvas.getContext("2d");
   const geom = drawGrid(ctx, canvas.width, canvas.height, layout.n);
-  for(const ship of layout.ships){
-    drawShip(ctx, geom, ship);
-  }
+  for(const ship of layout.ships) drawShip(ctx, geom, ship);
 }
 
 /* =========================
-   ЛОГІКА ГРИ
+   ГРА
    ========================= */
 function setTop(){
   scoreTop.textContent = String(score);
@@ -585,8 +554,7 @@ function startRun(){
   }
 
   userBadge.textContent = `${userName} • ${userEmail}`;
-  level = 0;
-  score = 0;
+  level = 0; score = 0;
   startTs = now();
 
   hide(screenStart);
@@ -594,51 +562,27 @@ function startRun(){
   show(screenGame);
 
   if(timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(()=>{
-    timeEl.textContent = fmtTime(now()-startTs);
-  }, 250);
+  timerInterval = setInterval(()=>{ timeEl.textContent = fmtTime(now()-startTs); }, 250);
 
   nextLevel();
-}
-
-function restartRun(){
-  stopMemoTimer();
-  if(timerInterval) clearInterval(timerInterval);
-  timerInterval = null;
-  startTs = 0;
-  level = 0;
-  score = 0;
-
-  // UI
-  timeEl.textContent = "00:00";
-  scoreEl.textContent = "0";
-  levelEl.textContent = "0";
-  scoreTop.textContent = "0";
-  levelTop.textContent = "0";
-
-  // screens
-  hide(screenGame);
-  hide(screenFinish);
-  show(screenStart);
-
-  stopConfetti();
 }
 
 function nextLevel(){
   stopMemoTimer();
   level++;
   setTop();
-  levelEl.textContent = String(level);
+
   stageHeader.textContent = "Запам’ятай розташування кораблів";
   stageHint.textContent = "Після 8 секунд з’являться 4 варіанти — обери правильний.";
   countdownEl.textContent = String(MEMO_SECONDS);
 
-  // підготовка лейаутів
+  // ПІД ЧАС ЗАПАМ’ЯТОВУВАННЯ — ПОЛЕ ВИДИМО, ВАРІАНТИ СХОВАНІ
+  memoArea.classList.remove("gridHidden");
+  hide(optionsWrap);
+
   correctLayout = generateLayout(level);
   optionsLayouts = buildOptions(correctLayout, level);
 
-  // показ запам’ятовування
-  hide(optionsWrap);
   renderLayout(mainCanvas, correctLayout);
 
   memoLeft = MEMO_SECONDS;
@@ -649,6 +593,9 @@ function nextLevel(){
     countdownEl.textContent = String(memoLeft);
     if(memoLeft <= 0){
       stopMemoTimer();
+      // ВАЖЛИВО: ПОЛЕ ЗАПАМ’ЯТОВУВАННЯ ХОВАЄМО
+      memoArea.classList.add("gridHidden");
+      // і лише тоді показуємо варіанти
       showOptions();
     }
   }, 1000);
@@ -666,7 +613,6 @@ function showOptions(){
   stageHint.textContent = "Час на вибір не обмежений.";
   hide(countdownEl);
 
-  // очистити і намалювати 4 варіанти
   optionsWrap.innerHTML = "";
   optionsWrap.classList.remove("hidden");
 
@@ -684,8 +630,7 @@ function showOptions(){
     top.innerHTML = `<span>Варіант ${idx+1}</span><span class="muted">tap/click</span>`;
 
     const c = document.createElement("canvas");
-    c.width = 220;
-    c.height = 220;
+    c.width = 220; c.height = 220;
 
     opt.appendChild(top);
     opt.appendChild(c);
@@ -696,7 +641,6 @@ function showOptions(){
       if(!accepting) return;
       accepting = false;
 
-      // disable all
       [...optionsWrap.querySelectorAll(".opt")].forEach(x=>x.classList.add("disabled"));
 
       const isCorrect = (k === correctK);
@@ -706,7 +650,6 @@ function showOptions(){
         opt.classList.add("good");
       }else{
         opt.classList.add("bad");
-        // підсвітимо правильний (тільки бордером) — без тексту
         [...optionsWrap.querySelectorAll(".opt")].forEach((node, j)=>{
           if(layoutKey(optionsLayouts[j]) === correctK){
             node.classList.add("good");
@@ -715,12 +658,8 @@ function showOptions(){
       }
 
       setTimeout(()=>{
-        if(level >= TOTAL_LEVELS){
-          finishRun();
-        }else{
-          accepting = true;
-          nextLevel();
-        }
+        if(level >= TOTAL_LEVELS) finishRun();
+        else { accepting = true; nextLevel(); }
       }, 750);
     };
 
@@ -742,7 +681,6 @@ function finishRun(){
 
   const totalMs = now() - startTs;
 
-  // UI
   finalScoreEl.textContent = String(score);
   finalTimeEl.textContent  = fmtTime(totalMs);
 
@@ -751,7 +689,6 @@ function finishRun(){
 
   startConfetti();
 
-  // тихо надсилаємо у Telegram
   sendToTelegram({
     name: userName,
     email: userEmail,
@@ -839,7 +776,6 @@ function startConfetti(){
       p.y += p.vy;
       p.r += p.vr;
 
-      // легкий “вітер”
       p.vx += (Math.random()*2-1)*0.02;
       p.vx = Math.max(-2.5, Math.min(2.5, p.vx));
 
@@ -853,7 +789,6 @@ function startConfetti(){
       ctx.translate(p.x,p.y);
       ctx.rotate(p.r);
 
-      // без заданих кольорів — беремо випадковий відтінок через hsl
       const hue = (p.x + p.y) % 360;
       ctx.fillStyle = `hsl(${hue} 85% 55%)`;
       ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
@@ -890,10 +825,9 @@ makePreview();
    EVENTS
    ========================= */
 btnStart.addEventListener("click", startRun);
-btnRestart.addEventListener("click", restartRun);
+
 btnAgain.addEventListener("click", ()=>{
   stopConfetti();
-  // старт одразу з тими ж даними
   hide(screenFinish);
   show(screenGame);
 
@@ -902,21 +836,18 @@ btnAgain.addEventListener("click", ()=>{
   startTs = now();
 
   if(timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(()=>{
-    timeEl.textContent = fmtTime(now()-startTs);
-  }, 250);
+  timerInterval = setInterval(()=>{ timeEl.textContent = fmtTime(now()-startTs); }, 250);
 
   nextLevel();
 });
 
-// Enter на формі
 [inpName, inpEmail].forEach(inp=>{
   inp.addEventListener("keydown",(e)=>{
     if(e.key==="Enter") startRun();
   });
 });
 
-// стартовий вигляд верхньої панелі
+// top init
 levelTop.textContent = "0";
 scoreTop.textContent = "0";
 document.getElementById("level").textContent = "0";
